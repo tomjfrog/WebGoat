@@ -1,0 +1,12 @@
+- params:
+      git:
+          repoName: WebGoat
+          branches:
+              - main
+      scan:
+          includeAllVulnerabilities: true
+          failOnSecurityIssues: true
+          projects:
+              - installCommand: mvn clean install
+                workingDirs:
+                    - .
