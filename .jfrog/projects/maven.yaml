@@ -1,0 +1,11 @@
+version: 1
+type: maven
+resolver:
+    serverId: tomjfrog.jfrog.io
+    snapshotRepo: webgoat-maven-dev-libs-snapshot
+    releaseRepo: webgoat-maven-dev-libs-release
+deployer:
+    serverId: tomjfrog.jfrog.io
+    snapshotRepo: webgoat-maven-dev-libs-snapshot
+    releaseRepo: webgoat-maven-dev-libs-release
+useWrapper: true

@@ -164,13 +164,6 @@
         <scope>import</scope>
       </dependency>
 
-        <!--- Ooof! -->
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-webmvc</artifactId>
-            <version>3.0.3.RELEASE</version>
-        </dependency>
-
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm</artifactId>
