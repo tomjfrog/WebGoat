@@ -1,6 +1,6 @@
-FROM docker.io/eclipse-temurin:19-jre-focal
+FROM docker.io/eclipse-temurin:21.0.3_9-jre
 LABEL NAME = "WebGoat: A deliberately insecure Web Application"
-MAINTAINER "WebGoat team"
+LABEL maintainer = "WebGoat team"
 
 RUN \
   useradd -ms /bin/bash webgoat && \
@@ -13,6 +13,9 @@ COPY --chown=webgoat target/webgoat-*.jar /home/webgoat/webgoat.jar
 
 EXPOSE 8080
 EXPOSE 9090
+EXPOSE 8083
+
+ENV TZ=Europe/Amsterdam
 
 WORKDIR /home/webgoat
 ENTRYPOINT [ "java", \
@@ -27,9 +30,10 @@ ENTRYPOINT [ "java", \
    "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED", \
    "--add-opens", "java.base/java.io=ALL-UNNAMED", \
    "--add-opens", "java.base/java.util=ALL-UNNAMED", \
+   "--add-opens", "java.base/sun.nio.ch=ALL-UNNAMED", \
+   "--add-opens", "java.base/java.io=ALL-UNNAMED", \
    "-Drunning.in.docker=true", \
-   "-Dwebgoat.host=0.0.0.0", \
-   "-Dwebwolf.host=0.0.0.0", \
-   "-Dwebgoat.port=8080", \
-   "-Dwebwolf.port=9090", \
-   "-jar", "webgoat.jar" ]
+   "-jar", "webgoat.jar", "--server.address", "0.0.0.0" ]
+
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl --fail http://localhost:8080/WebGoat/actuator/health || exit 1
