@@ -163,6 +163,7 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
+
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm</artifactId>
