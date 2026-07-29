@@ -1,20 +1,20 @@
 name: Artifactory Build and Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   id-token: write
   contents: read
+  attestations: write
+  artifact-metadata: write
 
 env:
   JF_PROJECT: webgoat
   BUILD_NAME: webgoat
   IMAGE_NAME: webgoat
   DOCKER_LOCAL_REPO: webgoat-docker-local
+  MAVEN_LOCAL_REPO: webgoat-maven-local
 
 jobs:
   build-and-deploy:
@@ -53,6 +53,33 @@ jobs:
             --build-number="${{ github.run_number }}" \
             --project="${JF_PROJECT}"
 
+      - name: Resolve Maven artifact for attestation
+        id: maven-artifact
+        run: |
+          set -euo pipefail
+          JAR=$(find target -maxdepth 1 -type f -name 'webgoat-*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*.jar.original' | head -1)
+          test -n "${JAR}"
+          DIGEST="sha256:$(sha256sum "${JAR}" | awk '{print $1}')"
+          SHA256="${DIGEST#sha256:}"
+
+          # Discover the Artifactory path by checksum (handles unique SNAPSHOT timestamps)
+          ARTIFACT_PATH=$(echo "items.find({\"repo\":\"${MAVEN_LOCAL_REPO}\",\"sha256\":\"${SHA256}\"}).include(\"repo\",\"path\",\"name\")" \
+            | jf rt curl -XPOST /api/search/aql --data-binary @- \
+            | jq -r '.results[] | select(.name | test("\\.jar$")) | select(.name | test("sources|javadoc") | not) | "\(.repo)/\(.path)/\(.name)"' \
+            | head -1)
+          test -n "${ARTIFACT_PATH}"
+
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "Attesting Maven artifact at ${ARTIFACT_PATH} (${DIGEST})"
+
+      - name: Attest Maven artifact
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.maven-artifact.outputs.path }}
+          subject-digest: ${{ steps.maven-artifact.outputs.digest }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -77,6 +104,13 @@ jobs:
           tags: |
             ${{ vars.JF_DOCKER_REGISTRY }}/${{ env.DOCKER_LOCAL_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ vars.JF_DOCKER_REGISTRY }}/${{ env.DOCKER_LOCAL_REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Attest Docker image
+        uses: actions/attest-build-provenance@v3
+        with:
+          # oci:// prefix is required so JFrog Evidence correctly parses the subject
+          subject-name: oci://${{ vars.JF_DOCKER_REGISTRY }}/${{ env.DOCKER_LOCAL_REPO }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
 
       - name: Add Docker image to build-info
         run: |
