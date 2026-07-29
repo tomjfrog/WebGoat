@@ -1,0 +1,96 @@
+name: Artifactory Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  JF_PROJECT: webgoat
+  BUILD_NAME: webgoat
+  IMAGE_NAME: webgoat
+  DOCKER_LOCAL_REPO: webgoat-docker-local
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy to Artifactory
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: ./.github/actions/java-setup
+        with:
+          cache: maven
+
+      - name: Setup JFrog CLI
+        id: setup-jfrog-cli
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JF_URL }}
+          JF_PROJECT: ${{ env.JF_PROJECT }}
+        with:
+          oidc-provider-name: github-oidc-integration
+
+      - name: Configure Maven for Artifactory
+        run: |
+          jf mvnc \
+            --repo-resolve-releases webgoat-maven \
+            --repo-resolve-snapshots webgoat-maven \
+            --repo-deploy-releases webgoat-maven-local \
+            --repo-deploy-snapshots webgoat-maven-local
+
+      - name: Build and deploy Maven artifact
+        run: |
+          jf mvn clean deploy \
+            --build-name="${BUILD_NAME}" \
+            --build-number="${{ github.run_number }}" \
+            --project="${JF_PROJECT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Docker login to Artifactory
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.JF_DOCKER_REGISTRY }}
+          username: ${{ steps.setup-jfrog-cli.outputs.oidc-user }}
+          password: ${{ steps.setup-jfrog-cli.outputs.oidc-token }}
+
+      - name: Build and push WebGoat image
+        id: build-and-push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.JF_DOCKER_REGISTRY }}/${{ env.DOCKER_LOCAL_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ vars.JF_DOCKER_REGISTRY }}/${{ env.DOCKER_LOCAL_REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Add Docker image to build-info
+        run: |
+          IMAGE_REF="${{ vars.JF_DOCKER_REGISTRY }}/${DOCKER_LOCAL_REPO}/${IMAGE_NAME}@${{ steps.build-and-push.outputs.digest }}"
+          echo "${IMAGE_REF}" > image-ref.txt
+          jf rt build-docker-create "${DOCKER_LOCAL_REPO}" \
+            --image-file image-ref.txt \
+            --build-name="${BUILD_NAME}" \
+            --build-number="${{ github.run_number }}" \
+            --project="${JF_PROJECT}"
+
+      - name: Publish build-info
+        run: |
+          jf rt build-publish \
+            "${BUILD_NAME}" \
+            "${{ github.run_number }}" \
+            --project="${JF_PROJECT}"
